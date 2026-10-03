@@ -1,0 +1,9 @@
+{
+	"enabled_classes": [
+		"Engine",
+		"OS",
+		"ProjectSettings",
+		"RefCounted",
+		"SceneTree"
+	]
+}

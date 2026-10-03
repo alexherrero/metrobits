@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The installer's pages and its one package; package.sh fills in @ID@ and @VERSION@. -->
+<installer-gui-script minSpecVersion="2">
+    <title>Metrobits</title>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <license file="license.txt" mime-type="text/plain"/>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <domains enable_localSystem="true"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="@ID@"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="@ID@" visible="false">
+        <pkg-ref id="@ID@"/>
+    </choice>
+    <pkg-ref id="@ID@" version="@VERSION@" onConclusion="none">Metrobits.pkg</pkg-ref>
+</installer-gui-script>

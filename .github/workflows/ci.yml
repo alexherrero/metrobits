@@ -1,0 +1,96 @@
+name: CI
+
+# Builds the engine, the smoke program and the extension, and runs the headless
+# tests, through the same .harness/init.sh used locally; and, alongside, the
+# soak (.harness/soak.sh: every scenario to its end, a built city past 10,000
+# people, 50-year runs under ASan and UBSan, each twice). Linux only: its
+# minutes are the cheapest on a private repo, the Mac build is checked
+# locally, and the Mac release is built by release-macos.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        script: [init, soak]
+    name: linux (${{ matrix.script }})
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Read the pinned versions
+        run: |
+          echo "GODOT_VERSION=$(cat .godot-version)" >> "$GITHUB_ENV"
+          echo "GODOT_CPP_SHA=$(git rev-parse HEAD:extension/godot-cpp)" >> "$GITHUB_ENV"
+
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux-x86_64
+
+      - name: Install Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          zip="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          mkdir -p ~/godot && cd ~/godot
+          curl -fsSLO "$base/$zip"
+          curl -fsSLO "$base/SHA512-SUMS.txt"
+          grep " $zip\$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "$zip" && rm "$zip" SHA512-SUMS.txt
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+
+      - name: Put Godot on PATH
+        run: echo "$HOME/godot" >> "$GITHUB_PATH"
+
+      - name: Install SCons
+        run: pipx install scons==4.11.1
+
+      # godot-cpp is the slow part of the build and changes only with the
+      # submodule, so its objects are cached per submodule commit.
+      - name: Cache godot-cpp objects
+        uses: actions/cache@v6
+        with:
+          path: .scons-cache
+          key: scons-linux-${{ env.GODOT_CPP_SHA }}
+
+      # clang's sanitizer runtimes, for the soak's second build.
+      - name: Install the sanitizer runtimes
+        if: matrix.script == 'soak'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libclang-rt-18-dev
+          clang --version | head -1
+
+      - name: Build and test
+        if: matrix.script == 'init'
+        run: bash .harness/init.sh
+
+      - name: Soak
+        if: matrix.script == 'soak'
+        run: bash .harness/soak.sh
+
+      - name: Keep the soak's results
+        if: matrix.script == 'soak' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: soak-results
+          path: .harness/soak-results/
+          retention-days: 14

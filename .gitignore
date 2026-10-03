@@ -1,0 +1,19 @@
+# A local file for the development tools; never committed.
+.harness/project.json
+# Per-session marker files of the development tools.
+.harness/session-id-*
+
+# Build output
+*.o
+*.os
+*.a
+*.dylib
+*.so
+.sconsign*.dblite
+build/
+
+# Godot
+.godot/
+
+# The soak's runs (.harness/soak.sh)
+.harness/soak-results/
