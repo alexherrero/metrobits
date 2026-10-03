@@ -5,7 +5,8 @@ name: CI
 # soak (.harness/soak.sh: every scenario to its end, a built city past 10,000
 # people, 50-year runs under ASan and UBSan, each twice). Linux only: its
 # minutes are the cheapest on a private repo, the Mac build is checked
-# locally, and the Mac release is built by release-macos.yml.
+# locally, Windows is checked by hand (ci-windows.yml) and on a tag, and the
+# releases are built by release.yml.
 
 on:
   push:

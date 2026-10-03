@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # init.sh: build everything and run the tests, from a fresh clone or a dirty tree.
 # Every /work and /review session runs this to reach a known-good state; CI runs
-# it too. Needs: clang, SCons, and Godot 4.7 on PATH as `godot` (or
+# it too. Needs: clang (on Windows, Visual Studio's C++ compiler, with this run
+# from Git Bash), SCons, and Godot 4.7 on PATH as `godot` (or
 # GODOT=/path/to/godot).
 set -euo pipefail
 
@@ -14,6 +15,7 @@ SCONS_ARGS=()
 case "$(uname -s)" in
   Darwin) PLATFORM=macos ;;
   Linux)  PLATFORM=linux; SCONS_ARGS+=(use_llvm=yes) ;; # clang, as on the Mac
+  MINGW*|MSYS*) PLATFORM=windows ;; # Git Bash, building with Microsoft's compiler
   *) echo "init.sh: unsupported OS $(uname -s)" >&2; exit 1 ;;
 esac
 case "$(uname -m)" in

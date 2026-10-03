@@ -37,17 +37,23 @@ engine_sources = [
     if name.endswith(".cpp") and name not in ENGINE_EXCLUDE
 ]
 
-engine_env = env.Clone()
+# Microsoft's compiler lacks the Unix headers the engine includes; compat/msvc
+# has the little it uses. It also calls POSIX names like getcwd deprecated.
+MSVC = env.get("is_msvc", False)
+compat_env = env.Clone()
+if MSVC:
+    compat_env.Append(CPPPATH=["compat/msvc/"], CPPDEFINES=["_CRT_NONSTDC_NO_WARNINGS", "_CRT_SECURE_NO_WARNINGS"])
+
+engine_env = compat_env.Clone()
 engine_env.Append(CPPPATH=[Dir(ENGINE_SRC)])
-if engine_env["platform"] != "windows":
-    # Upstream's code, built as is: don't drown our own warnings in its.
-    engine_env.Append(CCFLAGS=["-w"])
+# Upstream's code, built as is: don't drown our own warnings in its.
+engine_env.Append(CCFLAGS=["/w" if MSVC else "-w"])
 engine = engine_env.StaticLibrary("build/libmicropolis" + env["suffix"] + env["LIBSUFFIX"], engine_sources)
 
 smoke_env = engine_env.Clone(LIBS=[engine])
 smoke_env.Append(CPPPATH=["native/"])
-smoke = smoke_env.Program("build/micropolis_smoke" + env["suffix"], ["native/smoke.cpp"])
-soak = smoke_env.Program("build/micropolis_soak" + env["suffix"], ["native/soak.cpp"])
+smoke = smoke_env.Program("build/micropolis_smoke" + env["suffix"] + env["PROGSUFFIX"], ["native/smoke.cpp"])
+soak = smoke_env.Program("build/micropolis_soak" + env["suffix"] + env["PROGSUFFIX"], ["native/soak.cpp"])
 
 # The engine and the soak again, with AddressSanitizer and
 # UndefinedBehaviorSanitizer, in their own object folders. Undefined behaviour
@@ -63,9 +69,9 @@ san_engine = san_env.StaticLibrary(
 )
 san_soak_env = san_env.Clone(LIBS=[san_engine])
 san_soak_env.Append(CPPPATH=["native/"])
-soak_san = san_soak_env.Program("build/micropolis_soak_san" + env["suffix"], ["build/native-san/soak.cpp"])
+soak_san = san_soak_env.Program("build/micropolis_soak_san" + env["suffix"] + env["PROGSUFFIX"], ["build/native-san/soak.cpp"])
 
-ext_env = env.Clone()
+ext_env = compat_env.Clone()
 ext_env.Append(CPPPATH=["src/", "native/", Dir(ENGINE_SRC)])
 ext_env.Prepend(LIBS=[engine])
 extension = ext_env.SharedLibrary(

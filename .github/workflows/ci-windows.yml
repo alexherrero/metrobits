@@ -1,0 +1,81 @@
+name: CI (Windows)
+
+# Builds the engine, the smoke program and the extension with Microsoft's
+# compiler, and runs the same tests as on Linux, through .harness/init.sh in
+# Git Bash. By hand, and from the release workflow on a tag: Windows minutes
+# cost twice Linux's on a private repo. The soak stays on Linux, which has the
+# sanitizers.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ci-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Read the pinned versions
+        run: |
+          echo "GODOT_VERSION=$(cat .godot-version)" >> "$GITHUB_ENV"
+          echo "GODOT_CPP_SHA=$(git rev-parse HEAD:extension/godot-cpp)" >> "$GITHUB_ENV"
+
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-windows-x86_64
+
+      - name: Install Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          zip="Godot_v${GODOT_VERSION}-stable_win64.exe.zip"
+          mkdir -p ~/godot && cd ~/godot
+          curl -fsSLO "$base/$zip"
+          curl -fsSLO "$base/SHA512-SUMS.txt"
+          grep " $zip\$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "$zip" && rm "$zip" SHA512-SUMS.txt
+
+      # The console build, so the tests' output reaches the log.
+      - name: Point at Godot
+        run: echo "GODOT=$HOME/godot/Godot_v${GODOT_VERSION}-stable_win64_console.exe" >> "$GITHUB_ENV"
+
+      - name: Install SCons
+        run: |
+          pipx install scons==4.11.1
+          scons --version | head -2
+
+      # godot-cpp is the slow part of the build and changes only with the
+      # submodule, so its objects are cached per submodule commit. Each run
+      # saves what it built, even when a later step fails.
+      - name: Restore godot-cpp objects
+        uses: actions/cache/restore@v6
+        with:
+          path: .scons-cache
+          key: scons-windows-${{ env.GODOT_CPP_SHA }}-${{ github.run_id }}
+          restore-keys: scons-windows-${{ env.GODOT_CPP_SHA }}-
+
+      - name: Build and test
+        run: bash .harness/init.sh
+
+      - name: Keep godot-cpp objects
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .scons-cache
+          key: scons-windows-${{ env.GODOT_CPP_SHA }}-${{ github.run_id }}

@@ -6,6 +6,10 @@
 extends GutTest
 
 const SAVE := "user://test_city.cty"
+## A folder and a file named with letters beyond English's, as a player's own
+## folder can be (on Windows, the user folder is under their account name).
+const ACCENTED_DIR := "user://Städte für Zoë"
+const ACCENTED_SAVE := ACCENTED_DIR + "/Zürich.cty"
 
 var engine: CityEngine
 
@@ -16,7 +20,7 @@ func before_each() -> void:
 
 
 func after_each() -> void:
-	for path in [SAVE]:
+	for path in [SAVE, ACCENTED_SAVE, ACCENTED_DIR]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
@@ -72,6 +76,15 @@ func _running_state(city: CityEngine) -> Dictionary:
 
 
 # Save and load ------------------------------------------------------------------
+
+func test_a_city_saves_and_loads_where_the_path_has_accents() -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(ACCENTED_DIR))
+	engine.load_scenario(CityEngine.Scenario.DETROIT)
+	assert_true(engine.save_city(ACCENTED_SAVE))
+	assert_eq(FileAccess.get_file_as_bytes(ACCENTED_SAVE).size(), 51120, "the file is where Godot looks for it")
+	var other := _engine()
+	assert_true(other.load_city(ACCENTED_SAVE))
+
 
 func test_a_saved_city_reloads_as_it_was() -> void:
 	engine.load_scenario(CityEngine.Scenario.DETROIT)

@@ -1,0 +1,446 @@
+name: Release
+
+# Builds Metrobits for the Mac, Windows and Linux, through the same package
+# scripts used locally:
+#   macOS    Metrobits-<version>.pkg, packaging/macos/package.sh
+#   Windows  Metrobits-<version>-setup.exe, packaging/windows/package.sh, after
+#            building and testing everything there (.harness/init.sh)
+#   Linux    Metrobits-<version>-x86_64.AppImage, packaging/linux/package.sh
+# Windows and Linux are then installed and played on the runner
+# (packaging/launch-check.sh), since nobody plays them by hand before a release.
+# Every run keeps each package and its SHA-256 as the run's artifacts, and the
+# launch checks' screenshots and logs as small artifacts of their own. A tag v<version>, or v<version>-<suffix> for
+# a release candidate, also puts the packages on a draft GitHub Release of that
+# tag, to be published by hand. On tags and by hand only: Mac and Windows
+# minutes cost several times Linux's on a private repo. By hand, you can build
+# some of the platforms (platforms: "windows linux", say).
+# Where the repo has the Developer ID secrets, the Mac app and the
+# .pkg are signed with them and notarized by Apple: MACOS_APP_CERT_P12 and
+# MACOS_INSTALLER_CERT_P12 (base64 .p12 files), MACOS_CERT_PASSWORD, and
+# NOTARY_API_KEY_P8 (a base64 App Store Connect API key), NOTARY_API_KEY_ID and
+# NOTARY_API_ISSUER_ID. Without them, both are ad-hoc signed. If Apple
+# takes longer than package.sh waits (NOTARY_WAIT, 20 minutes), the signed
+# .pkg and its submission id stay in the run's artifact, the run warns, and
+# packaging/macos/finish-notarization.sh finishes it on a Mac. The Windows
+# installer is unsigned.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: The platforms to build
+        default: macos windows linux
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    # A tag builds a release only in the public repo, where packaging/snapshot.sh
+    # puts each release; by hand, it builds anywhere.
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'alexherrero/metrobits'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the version
+        id: version
+        run: |
+          version=$(sed -n 's/^application\/short_version="\(.*\)"$/\1/p' game/export_presets.cfg)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Metrobits $version"
+
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            "v$VERSION" | "v$VERSION"-*) echo "tag $tag, version $VERSION" ;;
+            *) echo "tag $tag doesn't match the export preset's version $VERSION" >&2; exit 1 ;;
+          esac
+          bash packaging/check-release-notes.sh "${tag#v}"
+
+      # Made once, here, so the three builds below only add to it.
+      - name: Make the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          prerelease=""
+          [[ "$tag" == "v$VERSION" ]] || prerelease="--prerelease"
+          # The version's own notes: bullets of its features and fixes, checked
+          # above by check-release-notes.sh.
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --draft $prerelease --verify-tag \
+              --title "Metrobits ${tag#v}" --notes-file "packaging/release-notes/${tag#v}.md"
+          fi
+
+  macos:
+    needs: draft
+    if: github.event_name == 'push' || contains(inputs.platforms, 'macos')
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache
+      SIGNED: ${{ secrets.MACOS_APP_CERT_P12 != '' && secrets.NOTARY_API_KEY_P8 != '' }}
+      VERSION: ${{ needs.draft.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Read the pinned versions
+        run: |
+          echo "GODOT_VERSION=$(cat .godot-version)" >> "$GITHUB_ENV"
+          echo "GODOT_CPP_SHA=$(git rev-parse HEAD:extension/godot-cpp)" >> "$GITHUB_ENV"
+
+      # The editor and the macOS export template; the full templates file is
+      # 1.2 GB, so only the template is kept.
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-macos-universal-template
+
+      - name: Install Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          zip="Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          tpz="Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          mkdir -p ~/godot/templates && cd ~/godot
+          curl -fsSLO "$base/$zip"
+          curl -fsSLO "$base/$tpz"
+          curl -fsSLO "$base/SHA512-SUMS.txt"
+          grep -E " ($zip|$tpz)\$" SHA512-SUMS.txt | shasum -a 512 -c -
+          unzip -q "$zip"
+          unzip -q -j "$tpz" templates/macos.zip templates/version.txt -d templates
+          rm "$zip" "$tpz" SHA512-SUMS.txt
+
+      - name: Put Godot and its template in place
+        run: |
+          echo "GODOT=$HOME/godot/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+          templates="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$templates"
+          cp ~/godot/templates/* "$templates/"
+
+      - name: Install SCons
+        run: pipx install scons==4.11.1
+
+      # godot-cpp is the slow part of the build and changes only with the
+      # submodule, so its objects are cached per submodule commit.
+      - name: Cache godot-cpp objects
+        uses: actions/cache@v6
+        with:
+          path: .scons-cache
+          key: scons-macos-universal-release-${{ env.GODOT_CPP_SHA }}
+
+      # A keychain of its own for the run, holding the two Developer ID
+      # identities and Apple's Developer ID intermediate, which completes their
+      # chain; and the notary key as a file. The last step removes both.
+      - name: Put the Developer ID in a keychain
+        if: env.SIGNED == 'true'
+        env:
+          APP_P12: ${{ secrets.MACOS_APP_CERT_P12 }}
+          INSTALLER_P12: ${{ secrets.MACOS_INSTALLER_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
+          ISSUER: ${{ secrets.NOTARY_API_ISSUER_ID }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 24)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$APP_P12" | base64 --decode > "$RUNNER_TEMP/app.p12"
+          echo "$INSTALLER_P12" | base64 --decode > "$RUNNER_TEMP/installer.p12"
+          for p12 in app installer; do
+            security import "$RUNNER_TEMP/$p12.p12" -k "$keychain" -f pkcs12 -P "$P12_PASSWORD" \
+              -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/productsign
+          done
+          rm "$RUNNER_TEMP/app.p12" "$RUNNER_TEMP/installer.p12"
+          curl -fsSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain" || true
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identities=$(security find-identity -v "$keychain")
+          app=$(echo "$identities" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+          installer=$(echo "$identities" | grep -o '"Developer ID Installer: [^"]*"' | head -1 | tr -d '"')
+          [[ -n "$app" && -n "$installer" ]] || { echo "the keychain lacks a valid Developer ID identity" >&2; echo "$identities" >&2; exit 1; }
+          echo "signing as: $app; $installer"
+          echo "$NOTARY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          {
+            echo "MACOS_SIGN_APP=$app"
+            echo "MACOS_SIGN_INSTALLER=$installer"
+            echo "NOTARY_KEY=$RUNNER_TEMP/notary.p8"
+            echo "NOTARY_KEY_ID=$KEY_ID"
+            echo "NOTARY_ISSUER=$ISSUER"
+            echo "SIGNING_KEYCHAIN=$keychain"
+          } >> "$GITHUB_ENV"
+
+      - name: Package
+        run: bash packaging/macos/package.sh
+
+      - name: Remove the keychain and the notary key
+        if: always() && env.SIGNED == 'true'
+        run: |
+          [[ -z "${SIGNING_KEYCHAIN:-}" ]] || security delete-keychain "$SIGNING_KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/notary.p8"
+
+      - name: Keep the installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Metrobits-${{ env.VERSION }}-macos
+          path: |
+            build/macos/Metrobits-${{ env.VERSION }}.pkg
+            build/macos/Metrobits-${{ env.VERSION }}.pkg.sha256
+            build/macos/Metrobits-${{ env.VERSION }}.pkg.notary-id
+          retention-days: 30
+
+      - name: Put it on the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ -f "build/macos/Metrobits-$VERSION.pkg.notary-id" ]]; then
+            echo "::warning::Apple hadn't finished notarizing ($(cat "build/macos/Metrobits-$VERSION.pkg.notary-id")); run packaging/macos/finish-notarization.sh $tag on a Mac to staple it and put it on the release."
+            exit 0
+          fi
+          gh release upload "$tag" --clobber \
+            "build/macos/Metrobits-$VERSION.pkg" "build/macos/Metrobits-$VERSION.pkg.sha256"
+
+  windows:
+    needs: draft
+    if: github.event_name == 'push' || contains(inputs.platforms, 'windows')
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache
+      VERSION: ${{ needs.draft.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Read the pinned versions
+        run: |
+          echo "GODOT_VERSION=$(cat .godot-version)" >> "$GITHUB_ENV"
+          echo "GODOT_CPP_SHA=$(git rev-parse HEAD:extension/godot-cpp)" >> "$GITHUB_ENV"
+
+      # The editor and the Windows export templates.
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-windows-x86_64-templates
+
+      - name: Install Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          zip="Godot_v${GODOT_VERSION}-stable_win64.exe.zip"
+          tpz="Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          mkdir -p ~/godot/templates && cd ~/godot
+          curl -fsSLO "$base/$zip"
+          curl -fsSLO "$base/$tpz"
+          curl -fsSLO "$base/SHA512-SUMS.txt"
+          grep -E " ($zip|$tpz)\$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "$zip"
+          unzip -q -j "$tpz" 'templates/windows_*_x86_64*' templates/version.txt -d templates
+          rm "$zip" "$tpz" SHA512-SUMS.txt
+
+      # The console build, so the tests' output reaches the log.
+      - name: Put Godot and its templates in place
+        run: |
+          echo "GODOT=$HOME/godot/Godot_v${GODOT_VERSION}-stable_win64_console.exe" >> "$GITHUB_ENV"
+          templates="$(cygpath -u "$APPDATA")/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$templates"
+          cp ~/godot/templates/* "$templates/"
+
+      - name: Install SCons
+        run: pipx install scons==4.11.1
+
+      # godot-cpp is the slow part of the build and changes only with the
+      # submodule, so its objects are cached per submodule commit. Each run
+      # saves what it built, even when a later step fails.
+      - name: Restore godot-cpp objects
+        uses: actions/cache/restore@v6
+        with:
+          path: .scons-cache
+          key: scons-windows-${{ env.GODOT_CPP_SHA }}-${{ github.run_id }}
+          restore-keys: scons-windows-${{ env.GODOT_CPP_SHA }}-
+
+      - name: Build and test
+        run: bash .harness/init.sh
+
+      - name: Package
+        run: bash packaging/windows/package.sh
+
+      - name: Keep godot-cpp objects
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .scons-cache
+          key: scons-windows-${{ env.GODOT_CPP_SHA }}-${{ github.run_id }}
+
+      - name: Keep the installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Metrobits-${{ env.VERSION }}-windows
+          path: |
+            build/windows/Metrobits-${{ env.VERSION }}-setup.exe
+            build/windows/Metrobits-${{ env.VERSION }}-setup.exe.sha256
+          retention-days: 30
+
+      - name: Install, play and uninstall it
+        run: bash packaging/launch-check.sh "build/windows/Metrobits-$VERSION-setup.exe" build/launch
+
+      - name: Keep the launch check's screenshot and log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: launch-check-windows
+          path: build/launch/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Put it on the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            "build/windows/Metrobits-$VERSION-setup.exe" "build/windows/Metrobits-$VERSION-setup.exe.sha256"
+
+  linux:
+    needs: draft
+    if: github.event_name == 'push' || contains(inputs.platforms, 'linux')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache
+      VERSION: ${{ needs.draft.outputs.version }}
+      # appimagetool and the AppImage runtime it builds in, pinned, with the
+      # SHA-256 GitHub publishes for each.
+      APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+      APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+      RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+      RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Read the pinned versions
+        run: |
+          echo "GODOT_VERSION=$(cat .godot-version)" >> "$GITHUB_ENV"
+          echo "GODOT_CPP_SHA=$(git rev-parse HEAD:extension/godot-cpp)" >> "$GITHUB_ENV"
+
+      # The editor and the Linux export templates.
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux-x86_64-templates
+
+      - name: Install Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          zip="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          tpz="Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          mkdir -p ~/godot/templates && cd ~/godot
+          curl -fsSLO "$base/$zip"
+          curl -fsSLO "$base/$tpz"
+          curl -fsSLO "$base/SHA512-SUMS.txt"
+          grep -E " ($zip|$tpz)\$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "$zip"
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          unzip -q -j "$tpz" 'templates/linux_*.x86_64' templates/version.txt -d templates
+          rm "$zip" "$tpz" SHA512-SUMS.txt
+
+      - name: Put Godot and its templates in place
+        run: |
+          echo "GODOT=$HOME/godot/godot" >> "$GITHUB_ENV"
+          templates="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$templates"
+          cp ~/godot/templates/* "$templates/"
+
+      - name: Install SCons
+        run: pipx install scons==4.11.1
+
+      - name: Install appimagetool
+        run: |
+          mkdir -p ~/appimage && cd ~/appimage
+          curl -fsSL -o appimagetool "$APPIMAGETOOL_URL"
+          curl -fsSL -o runtime-x86_64 "$RUNTIME_URL"
+          echo "$APPIMAGETOOL_SHA256  appimagetool" | sha256sum -c -
+          echo "$RUNTIME_SHA256  runtime-x86_64" | sha256sum -c -
+          chmod +x appimagetool
+          {
+            echo "APPIMAGETOOL=$HOME/appimage/appimagetool"
+            echo "APPIMAGE_RUNTIME=$HOME/appimage/runtime-x86_64"
+            # GitHub's runners have no FUSE, so appimagetool unpacks itself and runs.
+            echo "APPIMAGE_EXTRACT_AND_RUN=1"
+          } >> "$GITHUB_ENV"
+
+      # godot-cpp is the slow part of the build and changes only with the
+      # submodule, so its objects are cached per submodule commit.
+      - name: Cache godot-cpp objects
+        uses: actions/cache@v6
+        with:
+          path: .scons-cache
+          key: scons-linux-release-${{ env.GODOT_CPP_SHA }}
+
+      - name: Package
+        run: bash packaging/linux/package.sh
+
+      - name: Keep the AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: Metrobits-${{ env.VERSION }}-linux
+          path: |
+            build/linux/Metrobits-${{ env.VERSION }}-x86_64.AppImage
+            build/linux/Metrobits-${{ env.VERSION }}-x86_64.AppImage.sha256
+          retention-days: 30
+
+      - name: Play it
+        run: bash packaging/launch-check.sh "build/linux/Metrobits-$VERSION-x86_64.AppImage" build/launch
+
+      - name: Keep the launch check's screenshot and log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: launch-check-linux
+          path: build/launch/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Put it on the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            "build/linux/Metrobits-$VERSION-x86_64.AppImage" "build/linux/Metrobits-$VERSION-x86_64.AppImage.sha256"

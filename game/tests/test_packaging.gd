@@ -16,6 +16,8 @@ func test_an_exported_app_reads_the_copy_inside_it() -> void:
 		"/Applications/Metrobits.app/Contents/Resources/micropolis-core", "a Mac app's Resources")
 	assert_eq(Content.bundled_core_dir("/opt/metrobits/metrobits.x86_64", "Linux"),
 		"/opt/metrobits/micropolis-core", "elsewhere, beside the executable")
+	assert_eq(Content.bundled_core_dir("C:/Program Files/Metrobits/Metrobits.exe", "Windows"),
+		"C:/Program Files/Metrobits/micropolis-core", "on Windows too")
 
 
 func test_the_engine_reads_the_same_content() -> void:
@@ -55,6 +57,23 @@ func test_every_shipped_content_file_is_traced() -> void:
 	assert_false(provenance.contains("**untraced**"))
 
 
+func test_every_platform_exports_the_same_game() -> void:
+	var presets := ConfigFile.new()
+	presets.load("res://export_presets.cfg")
+	var sections := {}
+	for section in presets.get_sections():
+		if not section.ends_with(".options"):
+			sections[presets.get_value(section, "platform")] = section
+	assert_eq_deep(sections.keys(), ["macOS", "Windows Desktop", "Linux"])
+	for section: String in sections.values():
+		assert_eq(presets.get_value(section, "exclude_filter"), presets.get_value("preset.0", "exclude_filter"),
+			section + " leaves out the tests and the tools, as the Mac does")
+	var windows: String = sections["Windows Desktop"] + ".options"
+	assert_true(FileAccess.file_exists(presets.get_value(windows, "application/icon")), "the Windows icon")
+	assert_eq(presets.get_value(windows, "application/file_version"), "",
+		"empty, so Windows shows the project's version")
+
+
 # About Metrobits --------------------------------------------------------------------
 
 func test_the_version_is_one_number_in_both_places() -> void:
@@ -81,3 +100,13 @@ func test_the_macos_about_item_opens_it() -> void:
 	add_child_autofree(main)
 	main._notification(NOTIFICATION_WM_ABOUT)
 	assert_eq(main.app_about_count, 1, "About Metrobits, in the menu bar")
+
+
+func test_the_current_version_has_release_notes() -> void:
+	var path := ProjectSettings.globalize_path("res://../packaging/release-notes/%s.md" % Notices.version())
+	assert_true(FileAccess.file_exists(path), "release notes for %s: one '- ' bullet per feature or fix" % Notices.version())
+	var lines := Array(FileAccess.get_file_as_string(path).split("\n")).filter(
+		func(line: String) -> bool: return line.strip_edges() != "")
+	assert_gt(lines.size(), 0, "not empty")
+	for line: String in lines:
+		assert_string_starts_with(line, "- ", "only bullets, as check-release-notes.sh wants")

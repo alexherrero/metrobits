@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Finishes a release whose notarization Apple hadn't answered while
-# release-macos.yml waited: downloads that tag's signed .pkg
+# release.yml waited: downloads that tag's signed .pkg
 # and its notary id from the release run's artifact, waits for Apple's answer,
 # staples the ticket, checks Gatekeeper's verdict, and puts the .pkg and its
 # SHA-256 on the tag's draft release. Run it on a Mac with the notary
@@ -15,10 +15,10 @@ PROFILE=${NOTARY_PROFILE:-metrobits-notary}
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-run=$(gh run list --repo "$REPO" --workflow release-macos.yml --branch "$TAG" --limit 1 --json databaseId --jq '.[0].databaseId')
+run=$(gh run list --repo "$REPO" --workflow release.yml --branch "$TAG" --limit 1 --json databaseId --jq '.[0].databaseId')
 [[ -n "$run" ]] || { echo "no release run for $TAG in $REPO" >&2; exit 1; }
 echo "==> the signed installer from run $run"
-gh run download "$run" --repo "$REPO" --dir "$WORK"
+gh run download "$run" --repo "$REPO" --pattern "*-macos" --dir "$WORK"
 pkg=$(find "$WORK" -name 'Metrobits-*.pkg' | head -1)
 [[ -f "$pkg.notary-id" ]] || { echo "that run's installer isn't waiting on Apple (no .notary-id)" >&2; exit 1; }
 id=$(cat "$pkg.notary-id")
@@ -39,11 +39,8 @@ spctl --assess --type install --verbose=2 "$pkg"
 echo "==> onto the draft release $TAG"
 if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
 	prerelease=$([[ "$TAG" == *-* ]] && echo --prerelease || true)
+	bash "$(dirname "$0")/../check-release-notes.sh" "${TAG#v}"
 	notes_file="$(cd "$(dirname "$0")/.." && pwd)/release-notes/${TAG#v}.md"
-	if [[ ! -f "$notes_file" ]]; then
-		notes_file="$WORK/notes.md"
-		echo "Metrobits ${TAG#v} for macOS (Apple Silicon and Intel): open the .pkg to install it into Applications. It's signed with a Developer ID and notarized by Apple." > "$notes_file"
-	fi
 	gh release create "$TAG" --repo "$REPO" --draft $prerelease --verify-tag --title "Metrobits ${TAG#v}" \
 		--notes-file "$notes_file"
 fi

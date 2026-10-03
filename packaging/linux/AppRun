@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts Metrobits from inside its AppImage. The game finds its content beside
+# the program, in usr/bin/micropolis-core.
+HERE=$(dirname "$(readlink -f "$0")")
+exec "$HERE/usr/bin/metrobits.x86_64" "$@"

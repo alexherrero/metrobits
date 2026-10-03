@@ -9,6 +9,12 @@
 *.a
 *.dylib
 *.so
+*.dll
+*.exe
+*.exp
+*.lib
+*.obj
+*.pdb
 .sconsign*.dblite
 build/
 

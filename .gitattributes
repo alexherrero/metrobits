@@ -1,0 +1,4 @@
+# Never change line endings: the game reads its content files byte for byte,
+# as CONTENT-PROVENANCE.md traces them, and Git on Windows would otherwise
+# check text files out with CRLF.
+* -text

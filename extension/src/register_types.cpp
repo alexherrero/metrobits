@@ -12,12 +12,25 @@
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
 
+#ifdef _WIN32
+#include <clocale>
+#endif
+
 using namespace godot;
 
 void initialize_micropolis_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
         return;
     }
+#ifdef _WIN32
+    // Godot hands us paths as UTF-8, and the engine opens files with fopen.
+    // Windows' C runtime reads those names in the old ANSI code page unless
+    // its character set is UTF-8, so a city in a folder with letters beyond
+    // English's, like a user folder under an accented name, wouldn't open.
+    // The extension has its own copy of the runtime, so this changes nothing
+    // for Godot.
+    setlocale(LC_CTYPE, ".UTF-8");
+#endif
     GDREGISTER_CLASS(MicropolisEngine);
 }
 

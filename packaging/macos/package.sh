@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Builds the Mac app and its installer in build/macos:
 #   Metrobits.app             universal (Apple Silicon and Intel), with the
-#                              micropolis-core content the game reads
-#                              (packaging/content-used.txt) and the olpc
-#                              folder inside it, in Contents/Resources
-#                              (Content.core_dir); never the Windows art
+#                              micropolis-core content the game reads and
+#                              the licences inside it, in
+#                              Contents/Resources (copy-content.sh); never
+#                              the Windows art
 #   Metrobits-<version>.pkg   a standard installer for macOS's Installer: a
 #                              welcome page, the licence (EA's notice, then the
 #                              GPL), and the app into /Applications
@@ -21,7 +21,7 @@
 # ad-hoc signed and a downloaded copy shows Gatekeeper's warning.
 # Needs SCons, and Godot 4.7.2 with its export templates: `godot` on PATH, or
 # GODOT=/path/to/godot. The version is the export preset's
-# application/short_version. GitHub builds it too (release-macos.yml).
+# application/short_version. GitHub builds it too (release.yml).
 set -euo pipefail
 
 GODOT="${GODOT:-godot}"
@@ -74,27 +74,9 @@ mkdir -p "$OUT"
 "$GODOT" --headless --path "$ROOT/game" --export-release macOS "$APP"
 
 echo "==> the content and licences, inside the app"
-RESOURCES="$APP/Contents/Resources"
-# Only the content the game reads (packaging/content-used.txt, from
-# list-content.sh), each file traced to EA's 2008 release in
-# CONTENT-PROVENANCE.md: never content/tilesets, the Windows
-# edition's retail art, which the GPL doesn't cover. The OLPC's own
-# folder goes whole; its PROVENANCE.md lists every file.
-grep '^content/' "$ROOT/packaging/content-used.txt" \
-	| rsync -a --files-from=- "$ROOT/micropolis-core/" "$RESOURCES/micropolis-core/"
-ditto "$ROOT/micropolis-core/olpc" "$RESOURCES/micropolis-core/olpc"
-for file in MicropolisGPLLicenseNotice.md MicropolisPublicNameLicense.md CONTENT-PROVENANCE.md; do
-	cp "$ROOT/micropolis-core/$file" "$RESOURCES/micropolis-core/"
-done
-cp "$ROOT/LICENSE" "$RESOURCES/LICENSE"
-
-echo "==> no Windows art in the app"
-windows_art=$(find "$APP" -ipath '*tilesets*' -o -iname 'splash.bmp' -o -iname 'smltitle.bmp' -o -iname 'micropolis-title*')
-if [[ -n "$windows_art" ]]; then
-	echo "the app holds art the GPL doesn't cover:" >&2
-	echo "$windows_art" >&2
-	exit 1
-fi
+# What the game reads, as on every platform (copy-content.sh), in
+# Contents/Resources, and never the Windows art.
+bash "$ROOT/packaging/copy-content.sh" "$APP/Contents/Resources" "$APP"
 
 if [[ -n "$SIGN_APP" ]]; then
 	echo "==> signing the app: $SIGN_APP"

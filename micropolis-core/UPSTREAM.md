@@ -7,7 +7,7 @@ Metrobits runs on the C++ engine from [MicropolisCore](https://github.com/SimHac
 | `engine/` | `packages/micropolis-engine/src` | the simulation |
 | `content/` | `content/micropolis` | the game's cities, pictures, sounds and text |
 
-We use MicropolisCore as it was at commit `2bfe12a`, from 18 September 2026. MicropolisCore builds the engine for web browsers; we build it for the Mac, leaving out its two browser-only files, `emscripten.cpp` and `callback.cpp`.
+We use MicropolisCore as it was at commit `2bfe12a`, from 18 September 2026. MicropolisCore builds the engine for web browsers; we build it for the Mac, Windows and Linux, leaving out its two browser-only files, `emscripten.cpp` and `callback.cpp`.
 
 ## Licence
 

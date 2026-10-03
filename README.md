@@ -1,15 +1,18 @@
 # Metrobits (built on Micropolis)
 
-Metrobits is Micropolis, the city simulator first released in 1989. Its source code was opened up in 2008, and Metrobits rebuilds it to run on a modern Mac with its original look and feel.
+Metrobits is Micropolis, the city simulator first released in 1989. Its source code was opened up in 2008, and Metrobits rebuilds it to run on a modern Mac, Windows PC or Linux PC with its original look and feel.
 
 Metrobits is a modified version of Micropolis. Electronic Arts and Micropolis GmbH don't make, endorse or support it.
 
 ## Install it
 
-1. Download `Metrobits-<version>.pkg` from [Releases](https://github.com/alexherrero/metrobits/releases).
-2. Open it and follow the installer. It puts Metrobits in your Applications folder.
+Download the file for your computer from [Releases](https://github.com/alexherrero/metrobits/releases).
 
-Metrobits runs on Apple Silicon and Intel Macs. The installer and the app are signed and notarized by Apple.
+**Mac:** download `Metrobits-<version>.pkg`, open it and follow the installer. It puts Metrobits in your Applications folder. Metrobits runs on Apple Silicon and Intel Macs. The installer and the app are signed and notarized by Apple.
+
+**Windows:** download `Metrobits-<version>-setup.exe`, open it and follow the installer. It puts Metrobits in your Program Files folder and adds it to the Start menu. The installer isn't signed yet, so Windows may stop it with "Windows protected your PC": choose **More info**, then **Run anyway**. Metrobits runs on 64-bit Windows 10 and 11. To remove it, use **Installed apps** in Windows' Settings.
+
+**Linux:** download `Metrobits-<version>-x86_64.AppImage`. It's the whole game in one file. Make it executable, then open it: in your file manager, allow it to run as a program in its properties; or in a terminal, run `chmod +x Metrobits-<version>-x86_64.AppImage`, then `./Metrobits-<version>-x86_64.AppImage`. Metrobits runs on 64-bit Intel and AMD PCs. If it won't open, install your distribution's FUSE package, usually `fuse3`.
 
 ## Play it
 

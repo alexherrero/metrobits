@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Metrobits
+GenericName=City Simulator
+Comment=The 1989 city simulator, built on Micropolis
+Exec=metrobits.x86_64
+Icon=metrobits
+Terminal=false
+Categories=Game;Simulation;

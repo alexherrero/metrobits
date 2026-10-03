@@ -24,6 +24,8 @@ git -C "$ROOT" rev-parse -q --verify "$TAG^{commit}" >/dev/null || { echo "no ta
 echo "==> $TAG into $PUBLIC"
 find "$PUBLIC" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 git -C "$ROOT" archive "$TAG" | tar -x -C "$PUBLIC"
+bash "$ROOT/packaging/check-release-notes.sh" "$VERSION" "$PUBLIC" \
+	|| { git -C "$PUBLIC" checkout -q -- . 2>/dev/null; git -C "$PUBLIC" clean -fdq; exit 1; }
 rm -rf "$PUBLIC/AGENTS.md" "$PUBLIC/CLAUDE.md" \
 	"$PUBLIC/micropolis-core/content/tilesets" "$PUBLIC/micropolis-core/content/images/robot_odyssey.png"
 mv "$PUBLIC/packaging/public/README.md" "$PUBLIC/README.md"
