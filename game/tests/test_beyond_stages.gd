@@ -73,7 +73,7 @@ func test_about_shows_the_about_notice() -> void:
 	main.micropolis_menu.id_pressed.emit(main.MicropolisItem.ABOUT)
 	assert_eq(main.notice.title_label.text, "About Micropolis", "the OLPC's Message 300")
 	var text: String = main.notice.text_label.text
-	assert_string_starts_with(text, "Metrobits (built on Micropolis): a modified version, restored in Godot.\n"
+	assert_string_starts_with(text, "Metrobits %s (built on Micropolis): a modified version, restored in Godot.\n" % Notices.version()
 		+ "Micropolis is a registered trademark of Micropolis Corporation (Micropolis GmbH) and is licensed here as a "
 		+ "courtesy of the owner under the Micropolis Public Name License (www.micropolis.com).\n\n",
 		"marked as modified, then the name licence's attribution, first")

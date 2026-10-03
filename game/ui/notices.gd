@@ -37,8 +37,8 @@ Ported to Linux, Optimized and Adapted for OLPC
     by Don Hopkins.
 Licensed under the GNU General Public License, 
     version 3, with additional conditions."""
-## One line, at the top.
-const MODIFIED_TEXT := "Metrobits (built on Micropolis): a modified version, restored in Godot."
+## One line, at the top, with Metrobits' version (application/config/version).
+const MODIFIED_TEXT := "Metrobits %s (built on Micropolis): a modified version, restored in Godot."
 ## Then the Micropolis Public Name License's preferred attribution, word for
 ## word, as the game shows the Micropolis name: near the top,
 ## where a notice clipped under the map still shows it.
@@ -59,7 +59,21 @@ static func for_message(index: int) -> Dictionary:
 ## The About notice's text: the modified-version line first, where a notice
 ## clipped by a short window still shows it, then the OLPC's.
 static func about_text() -> String:
-	return MODIFIED_TEXT + "\n" + COURTESY_TEXT + "\n\n" + (ABOUT_TEXT % ABOUT_VERSION)
+	return (MODIFIED_TEXT % version()) + "\n" + COURTESY_TEXT + "\n\n" + (ABOUT_TEXT % ABOUT_VERSION)
+
+
+## Metrobits' version, as the project settings give it, e.g. "1.0.1".
+static func version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", ""))
+
+
+## What About Metrobits, in the macOS menu bar, shows: the version, what
+## Metrobits is, and the two notices every About carries.
+static func app_about_text() -> String:
+	return "\n\n".join(["Version %s" % version(),
+		"Micropolis, the city simulator from 1989, rebuilt to run on a modern Mac with its original look and feel.",
+		"Metrobits is a modified version of Micropolis. Electronic Arts and Micropolis GmbH don't make, endorse or support it.",
+		COURTESY_TEXT])
 
 
 ## A scenario's notice (data/scenarios.xml: scenario n is notice 49 + n), which

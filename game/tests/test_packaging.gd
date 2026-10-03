@@ -53,3 +53,31 @@ func test_every_shipped_content_file_is_traced() -> void:
 		if relative.begins_with("content/"):
 			assert_true(provenance.contains("| `%s` |" % relative), relative + " is in CONTENT-PROVENANCE.md")
 	assert_false(provenance.contains("**untraced**"))
+
+
+# About Metrobits --------------------------------------------------------------------
+
+func test_the_version_is_one_number_in_both_places() -> void:
+	var presets := ConfigFile.new()
+	presets.load("res://export_presets.cfg")
+	var version := Notices.version()
+	assert_string_contains(version, ".")
+	assert_eq(presets.get_value("preset.0.options", "application/short_version"), version,
+		"the installer's version is the project's")
+	assert_eq(presets.get_value("preset.0.options", "application/version"), version)
+
+
+func test_about_metrobits_shows_the_version_and_the_notices() -> void:
+	var text := Notices.app_about_text()
+	assert_string_starts_with(text, "Version %s\n\n" % Notices.version())
+	assert_string_contains(text, "Metrobits is a modified version of Micropolis.")
+	assert_string_ends_with(text, Notices.COURTESY_TEXT)
+	assert_string_starts_with(Notices.about_text(), "Metrobits %s (built on Micropolis)" % Notices.version(),
+		"the game's own About names the version too")
+
+
+func test_the_macos_about_item_opens_it() -> void:
+	var main: Node = load("res://main.tscn").instantiate()
+	add_child_autofree(main)
+	main._notification(NOTIFICATION_WM_ABOUT)
+	assert_eq(main.app_about_count, 1, "About Metrobits, in the menu bar")

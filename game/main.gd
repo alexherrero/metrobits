@@ -131,6 +131,8 @@ const SCENARIO_LOST := 48
 const QUESTION_COLOR := Color("#ff0000")
 const LOST_COLOR := QUESTION_COLOR
 
+## How many times About Metrobits has been shown (the tests read it).
+var app_about_count := 0
 var engine: CityEngine
 var head: HeadPanel
 var map_view: MapView
@@ -1266,6 +1268,17 @@ func ask_disaster(item: DisasterItem) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		ask_to_quit()
+	elif what == NOTIFICATION_WM_ABOUT:
+		show_app_about()
+
+
+## About Metrobits, from the macOS menu bar: a native dialog with the version
+## and the notices. The game's own About, in the Micropolis menu, shows the
+## 1989 credits.
+func show_app_about() -> void:
+	app_about_count += 1
+	DisplayServer.dialog_show("Metrobits", Notices.app_about_text(), PackedStringArray(["OK"]),
+		func(_button: int) -> void: pass)
 
 
 ## The engine's yearly evaluation: UISetEvaluation's line, "Jan 1973: Score
