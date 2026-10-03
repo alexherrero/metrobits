@@ -1,5 +1,7 @@
 # Metrobits (built on Micropolis)
 
+![Metrobits: a painted city skyline at dusk, with a bridge, a seaport and a small plane](docs/readme-header.jpg)
+
 Metrobits is Micropolis, the city simulator first released in 1989. Its source code was opened up in 2008, and Metrobits rebuilds it to run on a modern Mac, Windows PC or Linux PC with its original look and feel.
 
 Metrobits is a modified version of Micropolis. Electronic Arts and Micropolis GmbH don't make, endorse or support it.
